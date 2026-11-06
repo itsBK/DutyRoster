@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Workers - Duty Roster</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/roster.css') }}">
+</head>
+<body>
+    <header>
+        <div class="header-left">
+            <h1>Worker Management</h1>
+        </div>
+        <div class="header-right">
+            <a href="{{ url_for('roster') }}" class="btn">Back to Roster</a>
+        </div>
+    </header>
+
+    <main class="settings-container">
+        <section class="settings-section">
+            <h2>Workers ({{ workers|length }})</h2>
+            <div class="table-container">
+                <table class="settings-table" id="workersTable">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Shift Preference</th>
+                            <th>Work Days/Month</th>
+                            <th>Category</th>
+                            <th>Vacation</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for worker in workers %}
+                        <tr data-id="{{ worker.id }}">
+                            <td><input type="text" value="{{ worker.name }}" class="field-name"></td>
+                            <td>
+                                <select class="field-shift">
+                                    <option value="">None</option>
+                                    {% for shift in shifts %}
+                                    <option value="{{ shift.name }}" {% if worker.shift_preference == shift.name %}selected{% endif %}>{{ shift.name }}</option>
+                                    {% endfor %}
+                                </select>
+                            </td>
+                            <td><input type="number" value="{{ worker.work_days_per_month }}" class="field-days" min="0" max="31"></td>
+                            <td>
+                                <select class="field-category">
+                                    <option value="">None</option>
+                                    {% for cat in categories %}
+                                    <option value="{{ cat.id }}" {% if worker.category_id == cat.id %}selected{% endif %}>{{ cat.name }} ({{ cat.hours_per_week }}h)</option>
+                                    {% endfor %}
+                                </select>
+                            </td>
+                            <td>
+                                <input type="checkbox" class="field-vacation" {% if worker.on_vacation %}checked{% endif %}>
+                            </td>
+                            <td>
+                                <button onclick="saveWorker(this)" class="btn btn-small">Save</button>
+                                <button onclick="deleteWorker({{ worker.id }}, this)" class="btn btn-small btn-danger">Delete</button>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <button onclick="addWorkerRow()" class="btn btn-primary">Add Worker</button>
+        </section>
+    </main>
+
+    <script>
+        async function saveWorker(btn) {
+            const row = btn.closest('tr');
+            const id = row.dataset.id;
+            const name = row.querySelector('.field-name').value;
+            const shift = row.querySelector('.field-shift').value;
+            const days = row.querySelector('.field-days').value;
+            const category = row.querySelector('.field-category').value;
+            const vacation = row.querySelector('.field-vacation').checked;
+
+            if (id) {
+                // Update existing
+                await fetch(`/api/workers/${id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name: name,
+                        shift_preference: shift,
+                        work_days_per_month: parseInt(days),
+                        category_id: category ? parseInt(category) : null,
+                        on_vacation: vacation ? 1 : 0
+                    })
+                });
+            } else {
+                // Create new
+                const response = await fetch('/api/workers', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name: name,
+                        shift_preference: shift,
+                        work_days_per_month: parseInt(days),
+                        category_id: category ? parseInt(category) : null
+                    })
+                });
+                const data = await response.json();
+                row.dataset.id = data.id;
+            }
+
+            alert('Worker saved');
+        }
+
+        async function deleteWorker(id, btn) {
+            if (!confirm('Delete worker?')) return;
+
+            const row = btn.closest('tr');
+            row.style.opacity = '0.5';
+
+            // No delete API endpoint yet, just visually hide
+            row.style.display = 'none';
+        }
+
+        function addWorkerRow() {
+            const tbody = document.querySelector('#workersTable tbody');
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td><input type="text" class="field-name" placeholder="Worker name"></td>
+                <td><select class="field-shift"><option value="">None</option></select></td>
+                <td><input type="number" value="20" class="field-days" min="0" max="31"></td>
+                <td><select class="field-category"><option value="">None</option></select></td>
+                <td><input type="checkbox" class="field-vacation"></td>
+                <td>
+                    <button onclick="saveWorker(this)" class="btn btn-small">Save</button>
+                </td>
+            `;
+            tbody.appendChild(row);
+        }
+    </script>
+</body>
+</html>

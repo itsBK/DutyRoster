@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Duty Roster - {{ year }}/{{ month }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/roster.css') }}">
+</head>
+<body>
+    <header>
+        <div class="header-left">
+            <h1>Duty Roster Planner</h1>
+        </div>
+        <div class="header-center">
+            <button onclick="prevMonth()" class="btn">&lt; Previous</button>
+            <span class="month-label" id="monthLabel">{{ year }}/{{ month }}</span>
+            <button onclick="nextMonth()" class="btn">Next &gt;</button>
+        </div>
+        <div class="header-right">
+            <button onclick="calculateSchedule()" class="btn btn-primary">Calculate Schedule</button>
+            <a href="{{ url_for('workers') }}" class="btn btn-secondary">Workers</a>
+            <a href="{{ url_for('settings') }}" class="btn btn-secondary">Settings</a>
+            <a href="{{ url_for('logout') }}" class="btn btn-logout">Logout ({{ session.username }})</a>
+        </div>
+    </header>
+
+    <main class="roster-container">
+        <div class="roster-table-wrapper">
+            <table class="roster-table" id="rosterTable">
+                <thead>
+                    <tr>
+                        <th class="worker-name-header">Worker</th>
+                        <th class="status-header">Status</th>
+                        {% for day in range(1, days_in_month + 1) %}
+                        <th class="day-header" data-day="{{ day }}">
+                            <span class="day-number">{{ day }}</span>
+                            <span class="day-weekday">{{ get_weekday(year, month, day) }}</span>
+                        </th>
+                        {% endfor %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for worker in workers %}
+                    <tr class="worker-row" data-worker-id="{{ worker.id }}">
+                        <td class="worker-name">
+                            <span class="worker-icon">
+                                {% if validation[worker.id]['status'] == 'ok' %}
+                                <span class="icon-check" title="Schedule OK">✓</span>
+                                {% elif validation[worker.id]['unassigned_days'] > 0 %}
+                                <span class="icon-error" title="{{ validation[worker.id]['unassigned_days'] }} days unassigned">✗</span>
+                                {% endif %}
+                            </span>
+                            {{ worker.name }}
+                        </td>
+                        <td class="status-cell">
+                            {% if worker.on_vacation %}
+                            <span class="badge badge-vacation" onclick="openVacationModal({{ worker.id }}, true)" style="cursor: pointer;">Vacation</span>
+                            {% else %}
+                            <span onclick="openVacationModal({{ worker.id }}, false)" style="cursor: pointer;">Click to set vacation</span>
+                            {% endif %}
+                        </td>
+                        {% for day in range(1, days_in_month + 1) %}
+                        <td class="schedule-cell status-{{ get_cell_status(worker, day, year, month, schedule) }}"
+                            data-worker-id="{{ worker.id }}"
+                            data-day="{{ day }}"
+                            onclick="editCell(this)"
+                            oncontextmenu="event.preventDefault(); openVacationModal({{ worker.id }}, false)">
+                            {% set cell = get_cell(worker, day, year, month, schedule) %}
+                            {% if cell and cell.shift_name %}
+                            <span class="shift-label">{{ cell.shift_name }}</span>
+                            {% endif %}
+                        </td>
+                        {% endfor %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </main>
+
+    <!-- Shift selection modal -->
+    <div id="shiftModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <h3>Assign Shift</h3>
+            <div id="shiftOptions"></div>
+            <div class="modal-actions">
+                <button onclick="closeModal()" class="btn">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Vacation modal -->
+    <div id="vacationModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <h3>Vacation Settings</h3>
+            <p id="vacationWorkerName"></p>
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" id="vacationCheckbox"> On Vacation
+                </label>
+            </div>
+            <div class="form-group">
+                <label>Start Date</label>
+                <input type="date" id="vacationStart">
+            </div>
+            <div class="form-group">
+                <label>End Date</label>
+                <input type="date" id="vacationEnd">
+            </div>
+            <div class="modal-actions">
+                <button onclick="saveVacation()" class="btn btn-primary">Save</button>
+                <button onclick="closeVacationModal()" class="btn">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentMonth = {{ month }};
+        let currentYear = {{ year }};
+        let editingCell = null;
+        let editingWorkerId = null;
+        let vacationWorkerId = null;
+
+        // Shift data from server
+        const shifts = [
+            {% for shift in shifts %}
+            { id: {{ shift.id }}, name: '{{ shift.name }}', start: '{{ shift.start_time }}', end: '{{ shift.end_time }}' },
+            {% endfor %}
+        ];
+
+        function prevMonth() {
+            currentMonth--;
+            if (currentMonth < 1) {
+                currentMonth = 12;
+                currentYear--;
+            }
+            window.location.href = `/?year=${currentYear}&month=${currentMonth}`;
+        }
+
+        function nextMonth() {
+            currentMonth++;
+            if (currentMonth > 12) {
+                currentMonth = 1;
+                currentYear++;
+            }
+            window.location.href = `/?year=${currentYear}&month=${currentMonth}`;
+        }
+
+        function editCell(cell) {
+            editingCell = cell;
+            editingWorkerId = parseInt(cell.dataset.workerId);
+
+            const optionsDiv = document.getElementById('shiftOptions');
+            optionsDiv.innerHTML = '';
+
+            // Add "Off" option
+            const offOption = document.createElement('div');
+            offOption.className = 'shift-option';
+            offOption.textContent = 'Off';
+            offOption.onclick = () => assignShift(editingWorkerId, editingCell.dataset.day, null, 'off');
+            optionsDiv.appendChild(offOption);
+
+            // Add shift options
+            for (const shift of shifts) {
+                const option = document.createElement('div');
+                option.className = 'shift-option';
+                option.textContent = `${shift.name} (${shift.start}-${shift.end})`;
+                option.onclick = () => assignShift(editingWorkerId, editingCell.dataset.day, shift.id, 'working');
+                optionsDiv.appendChild(option);
+            }
+
+            document.getElementById('shiftModal').style.display = 'block';
+        }
+
+        async function assignShift(workerId, day, shiftId, status) {
+            const dateStr = `${currentYear}-${String(currentMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+
+            await fetch('/api/schedule', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    worker_id: workerId,
+                    date: dateStr,
+                    shift_id: shiftId,
+                    status: status,
+                    user_override: true
+                })
+            });
+
+            window.location.href = `/?year=${currentYear}&month=${currentMonth}`;
+        }
+
+        function closeModal() {
+            document.getElementById('shiftModal').style.display = 'none';
+        }
+
+        async function calculateSchedule() {
+            if (!confirm('Calculate schedule for this month?\n\nThis will auto-assign shifts based on staffing requirements.\nUser overrides will be preserved.')) {
+                return;
+            }
+
+            const response = await fetch('/api/schedule/calculate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    year: currentYear,
+                    month: currentMonth
+                })
+            });
+
+            const data = await response.json();
+
+            // Reload to show results and validation icons
+            window.location.href = `/?year=${currentYear}&month=${currentMonth}`;
+        }
+
+        function openVacationModal(workerId, isOnVacation) {
+            vacationWorkerId = workerId;
+
+            // Get worker name from row
+            const row = document.querySelector(`tr[data-worker-id="${workerId}"]`);
+            const nameCell = row.querySelector('.worker-name');
+            document.getElementById('vacationWorkerName').textContent = nameCell.textContent.trim();
+
+            document.getElementById('vacationCheckbox').checked = isOnVacation;
+            document.getElementById('vacationModal').style.display = 'block';
+        }
+
+        async function saveVacation() {
+            const isOnVacation = document.getElementById('vacationCheckbox').checked;
+            const start = document.getElementById('vacationStart').value;
+            const end = document.getElementById('vacationEnd').value;
+
+            await fetch(`/api/workers/${vacationWorkerId}/vacation`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    on_vacation: isOnVacation ? 1 : 0,
+                    vacation_start: start || null,
+                    vacation_end: end || null
+                })
+            });
+
+            window.location.href = `/?year=${currentYear}&month=${currentMonth}`;
+        }
+
+        function closeVacationModal() {
+            document.getElementById('vacationModal').style.display = 'none';
+        }
+
+        // Close modals when clicking outside
+        document.addEventListener('click', function(event) {
+            if (event.target.classList.contains('modal')) {
+                event.target.style.display = 'none';
+            }
+        });
+    </script>
+</body>
+</html>

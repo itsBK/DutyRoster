@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Settings - Duty Roster</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/roster.css') }}">
+</head>
+<body>
+    <header>
+        <div class="header-left">
+            <h1>Settings</h1>
+        </div>
+        <div class="header-right">
+            <a href="{{ url_for('roster') }}" class="btn">Back to Roster</a>
+        </div>
+    </header>
+
+    <main class="settings-container">
+        <section class="settings-section">
+            <h2>Shifts</h2>
+            <div class="table-container">
+                <table class="settings-table">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Start Time</th>
+                            <th>End Time</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for shift in shifts %}
+                        <tr>
+                            <td><input type="text" value="{{ shift.name }}" id="shift-name-{{ shift.id }}"></td>
+                            <td><input type="time" value="{{ shift.start_time }}" id="shift-start-{{ shift.id }}"></td>
+                            <td><input type="time" value="{{ shift.end_time }}" id="shift-end-{{ shift.id }}"></td>
+                            <td>
+                                <button onclick="saveShift({{ shift.id }})" class="btn btn-small">Save</button>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <button onclick="addShift()" class="btn">Add Shift</button>
+        </section>
+
+        <section class="settings-section">
+            <h2>Worker Categories</h2>
+            <div class="table-container">
+                <table class="settings-table">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Hours/Week</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for category in categories %}
+                        <tr>
+                            <td><input type="text" value="{{ category.name }}" id="category-name-{{ category.id }}"></td>
+                            <td><input type="number" value="{{ category.hours_per_week }}" step="0.5" id="category-hours-{{ category.id }}"></td>
+                            <td>
+                                <button onclick="saveCategory({{ category.id }})" class="btn btn-small">Save</button>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <button onclick="addCategory()" class="btn">Add Category</button>
+        </section>
+
+        <section class="settings-section">
+            <h2>Staffing Requirements</h2>
+            <p>Number of workers needed per hour</p>
+            <div class="staffing-grid" id="staffingGrid">
+                <!-- Populated by JavaScript -->
+            </div>
+        </section>
+
+        <section class="settings-section">
+            <h2>Working Hours</h2>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Weekday Start</label>
+                    <input type="time" id="weekday-start" value="{{ working_hours.weekday.start if working_hours and working_hours.weekday else '06:00' }}">
+                </div>
+                <div class="form-group">
+                    <label>Weekday End</label>
+                    <input type="time" id="weekday-end" value="{{ working_hours.weekday.end if working_hours and working_hours.weekday else '22:00' }}">
+                </div>
+                <div class="form-group">
+                    <label>Weekend Start</label>
+                    <input type="time" id="weekend-start" value="{{ working_hours.weekend.start if working_hours and working_hours.weekend else '08:00' }}">
+                </div>
+                <div class="form-group">
+                    <label>Weekend End</label>
+                    <input type="time" id="weekend-end" value="{{ working_hours.weekend.end if working_hours and working_hours.weekend else '20:00' }}">
+                </div>
+            </div>
+            <button onclick="saveWorkingHours()" class="btn">Save Working Hours</button>
+        </section>
+    </main>
+
+    <script>
+        async function saveShift(id) {
+            const name = document.getElementById(`shift-name-${id}`).value;
+            const start = document.getElementById(`shift-start-${id}`).value;
+            const end = document.getElementById(`shift-end-${id}`).value;
+
+            await fetch(`/api/shifts/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, start_time: start, end_time: end })
+            });
+
+            alert('Shift saved');
+        }
+
+        async function addShift() {
+            const name = prompt('Shift name:');
+            const start = prompt('Start time (HH:MM):');
+            const end = prompt('End time (HH:MM):');
+
+            await fetch('/api/shifts', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, start_time: start, end_time: end })
+            });
+
+            window.location.reload();
+        }
+
+        async function saveCategory(id) {
+            const name = document.getElementById(`category-name-${id}`).value;
+            const hours = document.getElementById(`category-hours-${id}`).value;
+
+            await fetch(`/api/categories/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, hours_per_week: parseFloat(hours) })
+            });
+
+            alert('Category saved');
+        }
+
+        async function addCategory() {
+            const name = prompt('Category name:');
+            const hours = prompt('Hours per week:');
+
+            await fetch('/api/categories', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, hours_per_week: parseFloat(hours) })
+            });
+
+            window.location.reload();
+        }
+
+        async function saveWorkingHours() {
+            const weekdayStart = document.getElementById('weekday-start').value;
+            const weekdayEnd = document.getElementById('weekday-end').value;
+            const weekendStart = document.getElementById('weekend-start').value;
+            const weekendEnd = document.getElementById('weekend-end').value;
+
+            await fetch('/api/working-hours', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    day_type: 'weekday',
+                    start_time: weekdayStart,
+                    end_time: weekdayEnd
+                })
+            });
+
+            await fetch('/api/working-hours', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    day_type: 'weekend',
+                    start_time: weekendStart,
+                    end_time: weekendEnd
+                })
+            });
+
+            alert('Working hours saved');
+        }
+
+        // Initialize staffing grid
+        async function loadStaffing() {
+            const response = await fetch('/api/staffing');
+            const requirements = await response.json();
+
+            const grid = document.getElementById('staffingGrid');
+            grid.innerHTML = '';
+
+            for (let hour = 0; hour < 24; hour++) {
+                const row = document.createElement('div');
+                row.className = 'staffing-row';
+
+                const label = document.createElement('span');
+                label.textContent = `${hour}:00`;
+                row.appendChild(label);
+
+                let weekdayReq = 0;
+                let weekendReq = 0;
+
+                for (const req of requirements) {
+                    if (req.hour === hour) {
+                        if (req.day_type === 'weekday') weekdayReq = req.workers_needed;
+                        if (req.day_type === 'weekend') weekendReq = req.workers_needed;
+                    }
+                }
+
+                const weekdayInput = document.createElement('input');
+                weekdayInput.type = 'number';
+                weekdayInput.value = weekdayReq;
+                weekdayInput.min = 0;
+                weekdayInput.onchange = () => setStaffing(hour, 'weekday', parseInt(weekdayInput.value));
+                row.appendChild(weekdayInput);
+
+                const weekendInput = document.createElement('input');
+                weekendInput.type = 'number';
+                weekendInput.value = weekendReq;
+                weekendInput.min = 0;
+                weekendInput.onchange = () => setStaffing(hour, 'weekend', parseInt(weekendInput.value));
+                row.appendChild(weekendInput);
+
+                grid.appendChild(row);
+            }
+        }
+
+        async function setStaffing(hour, dayType, count) {
+            await fetch('/api/staffing', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    day_type: dayType,
+                    hour: hour,
+                    workers_needed: count
+                })
+            });
+        }
+
+        window.onload = loadStaffing;
+    </script>
+</body>
+</html>

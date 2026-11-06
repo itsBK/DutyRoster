@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <title>Monthly Duty Roster</title>
+
+    <!-- Bootstrap 5 -->
+    <link
+        href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+        rel="stylesheet"
+    >
+
+    <!-- Tabulator -->
+    <link
+        href="https://unpkg.com/tabulator-tables@6.3.1/dist/css/tabulator_bootstrap5.min.css"
+        rel="stylesheet"
+    >
+
+    <style>
+        body {
+            background: #f5f6f8;
+            padding: 24px;
+        }
+
+        .roster-container {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 2px 8px rgba(0,0,0,.05);
+        }
+
+        #roster {
+            margin-top: 20px;
+        }
+
+        /* Table headers */
+        .tabulator .tabulator-header {
+            background: #f8f9fa;
+            font-weight: 600;
+        }
+
+        .day-header {
+            text-align: center;
+            line-height: 1.3;
+            padding: 4px 0;
+        }
+
+        .day-header .weekday {
+            display: block;
+            font-size: 10px;
+            font-weight: normal;
+            color: #777;
+        }
+
+        .day-header.weekend {
+            background: #edf0f4;
+        }
+
+        /* Employee column */
+        .employee-name {
+            font-weight: 600;
+            padding: 4px;
+        }
+
+        /* Shift badges */
+        .shift-badge {
+            display: inline-block;
+            width: 100%;
+            padding: 5px 2px;
+            border-radius: 5px;
+            font-size: 11px;
+            font-weight: 600;
+            text-align: center;
+        }
+
+        .shift-E {
+            background: #dcefe2;
+            color: #25613b;
+        }
+
+        .shift-L {
+            background: #dce7f8;
+            color: #244d87;
+        }
+
+        .shift-N {
+            background: #f8e8c9;
+            color: #855a14;
+        }
+
+        .shift-OFF {
+            background: #e8e8ec;
+            color: #666;
+        }
+
+        /* Weekend cells */
+        .tabulator-cell.weekend-cell {
+            background: #f8f9fb;
+        }
+
+        .tabulator-cell {
+            padding: 5px !important;
+        }
+
+        .roster-legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-top: 16px;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+        }
+
+        .legend-color {
+            width: 13px;
+            height: 13px;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+
+<body>
+
+<div class="container-fluid">
+    <div class="roster-container">
+
+        <!-- Header -->
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
+
+            <div>
+                <h4 class="mb-1">Duty Roster</h4>
+                <div class="text-muted small">
+                    Monthly employee shift planning
+                </div>
+            </div>
+
+            <div class="d-flex align-items-center gap-2">
+
+                <button class="btn btn-outline-secondary btn-sm"
+                        onclick="changeMonth(-1)">
+                    &larr;
+                </button>
+
+                <strong id="month-label"></strong>
+
+                <button class="btn btn-outline-secondary btn-sm"
+                        onclick="changeMonth(1)">
+                    &rarr;
+                </button>
+
+                <button class="btn btn-primary btn-sm"
+                        onclick="exportRoster()">
+                    Export Excel
+                </button>
+
+            </div>
+        </div>
+
+        <!-- Legend -->
+        <div class="roster-legend">
+            <div class="legend-item">
+                <span class="legend-color" style="background:#dcefe2"></span>
+                Early shift
+            </div>
+
+            <div class="legend-item">
+                <span class="legend-color" style="background:#dce7f8"></span>
+                Late shift
+            </div>
+
+            <div class="legend-item">
+                <span class="legend-color" style="background:#f8e8c9"></span>
+                Night shift
+            </div>
+
+            <div class="legend-item">
+                <span class="legend-color" style="background:#e8e8ec"></span>
+                Day off
+            </div>
+        </div>
+
+        <!-- Roster table -->
+        <div id="roster"></div>
+
+        <div class="text-muted small mt-3">
+            Click a cell to change the assigned shift.
+            Weekends are highlighted.
+        </div>
+
+    </div>
+</div>
+
+<!-- Tabulator -->
+<script src="https://unpkg.com/tabulator-tables@6.3.1/dist/js/tabulator.min.js"></script>
+
+<script>
+    // --------------------------------------------------
+    // Initial data from Flask / Jinja2
+    // --------------------------------------------------
+
+    let currentYear = {{ year | tojson }};
+    let currentMonth = {{ month | tojson }};
+
+    const employees = {{ employees | tojson }};
+
+    const shiftLabels = {
+        "E": "Early",
+        "L": "Late",
+        "N": "Night",
+        "OFF": "Off"
+    };
+
+    const shiftValues = {
+        "E": "Early",
+        "L": "Late",
+        "N": "Night",
+        "OFF": "Off"
+    };
+
+    let rosterTable;
+
+
+    // --------------------------------------------------
+    // Generate date columns dynamically
+    // --------------------------------------------------
+
+    function generateColumns(year, month) {
+
+        const daysInMonth = new Date(year, month, 0).getDate();
+
+        const columns = [
+            {
+                title: "Employee",
+                field: "employee",
+                frozen: true,
+                width: 160,
+                headerSort: true,
+                formatter: function(cell) {
+                    const el = document.createElement("span");
+                    el.className = "employee-name";
+                    el.textContent = cell.getValue();
+                    return el;
+                }
+            }
+        ];
+
+        for (let day = 1; day <= daysInMonth; day++) {
+
+            // JavaScript month is zero-based
+            const date = new Date(year, month - 1, day);
+
+            const weekday = date.toLocaleDateString("en", {
+                weekday: "short"
+            });
+
+            const isWeekend =
+                date.getDay() === 0 || date.getDay() === 6;
+
+            const field = `day_${day}`;
+
+            columns.push({
+                title: `
+                    <div class="day-header ${isWeekend ? "weekend" : ""}">
+                        ${day}
+                        <span class="weekday">${weekday}</span>
+                    </div>
+                `,
+
+                titleFormatter: "html",
+                field: field,
+                width: 65,
+                minWidth: 65,
+                hozAlign: "center",
+                headerHozAlign: "center",
+                headerSort: false,
+
+                editor: "list",
+
+                editorParams: {
+                    values: shiftValues,
+                    clearable: false
+                },
+
+                formatter: function(cell) {
+
+                    const value = cell.getValue() || "OFF";
+
+                    const el = document.createElement("span");
+
+                    el.className = `shift-badge shift-${value}`;
+                    el.textContent = shiftLabels[value] || value;
+
+                    return el;
+                },
+
+                cssClass: isWeekend ? "weekend-cell" : ""
+            });
+        }
+
+        return columns;
+    }
+
+
+    // --------------------------------------------------
+    // Create / update roster
+    // --------------------------------------------------
+
+    function renderRoster() {
+
+        const columns = generateColumns(
+            currentYear,
+            currentMonth
+        );
+
+        document.getElementById("month-label").textContent =
+            new Date(currentYear, currentMonth - 1)
+                .toLocaleDateString("en", {
+                    month: "long",
+                    year: "numeric"
+                });
+
+        if (rosterTable) {
+
+            rosterTable.setColumns(columns);
+
+        } else {
+
+            rosterTable = new Tabulator("#roster", {
+
+                data: employees,
+
+                columns: columns,
+
+                height: "70vh",
+
+                layout: "fitData",
+
+                movableColumns: false,
+
+                resizableColumnFit: false,
+
+                columnDefaults: {
+                    vertAlign: "middle"
+                },
+
+                placeholder: "No employees found",
+
+                cellEdited: function(cell) {
+
+                    const row = cell.getRow().getData();
+
+                    const field = cell.getField();
+
+                    const shift = cell.getValue();
+
+                    console.log("Shift changed:", {
+                        employee: row.employee,
+                        date: field,
+                        shift: shift
+                    });
+
+                    // Save the change to the Python backend here.
+                }
+
+            });
+        }
+    }
+
+
+    // --------------------------------------------------
+    // Month navigation
+    // --------------------------------------------------
+
+    function changeMonth(offset) {
+
+        const date = new Date(
+            currentYear,
+            currentMonth - 1 + offset,
+            1
+        );
+
+        currentYear = date.getFullYear();
+        currentMonth = date.getMonth() + 1;
+
+        // In a real application, fetch the new month's
+        // employee assignments from the Python backend.
+
+        renderRoster();
+    }
+
+
+    // --------------------------------------------------
+    // Export
+    // --------------------------------------------------
+
+    function exportRoster() {
+        rosterTable.download(
+            "xlsx",
+            `duty-roster-${currentYear}-${currentMonth}.xlsx`,
+            {
+                sheetName: "Duty Roster"
+            }
+        );
+    }
+
+
+    // --------------------------------------------------
+    // Initialize
+    // --------------------------------------------------
+
+    renderRoster();
+
+</script>
+
+</body>
+</html>

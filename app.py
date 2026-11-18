@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/python3
 """Duty Roster Planning Application."""
 import json
 import argparse
@@ -38,21 +38,24 @@ def parse_args(config: dict):
 
 # Initialize app
 config = load_config('config.json')
-args = parse_args(config)
+#args = parse_args(config)
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
 
 # Initialize database and scheduler
-db = Database(args.db)
+#db = Database(args.db)
+db = Database("roster.db")
 scheduler = Scheduler(db)
 
 # Initialize default data
 def init_default_data():
     """Create default users, shifts, and categories if not exists."""
     # Default admin user
-    if not db.get_user('admin'):
-        db.create_user('admin', hash_password('admin'), is_admin=True)
+    if not db.get_user('bakbak'):
+        db.create_user('bakbak', hash_password('2857atjpAAA'), is_admin=True)
+    if not db.get_user("christian hammer"):
+        db.create_user("christian hammer", hash_password("christian_not?_"), is_admin=True)
 
     # Default shifts
     shifts = db.get_shifts()
@@ -335,15 +338,14 @@ def settings():
                            working_hours=working_hours)
 
 
-if __name__ == '__main__':
-    # SSL support
+def create_app():
     ssl_context = None
-    if args.ssl_cert and args.ssl_key:
-        ssl_context = (args.ssl_cert, args.ssl_key)
+    #if args.ssl_cert and args.ssl_key:
+    #    ssl_context = (args.ssl_cert, args.ssl_key)
 
     app.run(
-        host=args.host,
-        port=args.port,
+        host="127.0.0.1",
+        port=8000,
         ssl_context=ssl_context,
         debug=False
     )

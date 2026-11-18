@@ -5,7 +5,10 @@ import argparse
 import os
 from datetime import date
 from functools import wraps
+from dotenv import load_dotenv
+
 from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
+from werkzeug.middleware.proxy_fix import ProxyFix
 import calendar
 from auth import hash_password, verify_password, generate_session_token
 from database import Database
@@ -38,10 +41,19 @@ def parse_args(config: dict):
 
 # Initialize app
 config = load_config('config.json')
+load_dotenv()
 #args = parse_args(config)
 
 app = Flask(__name__)
-app.secret_key = os.urandom(24)
+app.config["SECRET_KEY"] = os.environ["FLASK_SECRET_KEY"]
+app.config.update(
+    SESSION_COOKIE_SECURE=True,
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax"
+)
+app.wsgi_app = ProxyFix(
+    app.wsgi_app, x_for=1, x_proto=1, x_host=0, x_port=0, x_prefix=0
+)
 
 # Initialize database and scheduler
 #db = Database(args.db)
@@ -124,10 +136,12 @@ def login():
 
         user = db.get_user(username)
         if user and verify_password(password, user['password_hash']):
+            session.clear()
             session['user_id'] = user['id']
             session['username'] = user['username']
             session['is_admin'] = user['is_admin']
             session['token'] = generate_session_token()
+            session.permanent = True
             return redirect(url_for('roster'))
         else:
             flash('Invalid username or password', 'error')
@@ -336,6 +350,28 @@ def settings():
                            categories=categories,
                            staffing=staffing,
                            working_hours=working_hours)
+
+#TODO: temp; remove eventually
+@app.route("/debug/session")
+def debug_session():
+    return {
+        "scheme": request.scheme,
+        "is_secure": request.is_secure,
+        "host": request.host,
+        "cookie_secure": app.config["SESSION_COOKIE_SECURE"],
+        "cookie": session.get("token")
+    }
+
+#TODO: temp; remove eventually
+@app.before_request
+def debug_auth():
+    app.logger.warning(
+        "PATH=%s SECURE=%s USER_ID=%s TOKEN_EXISTS=%s",
+        request.path,
+        request.is_secure,
+        session.get("user_id"),
+        bool(session.get("token"))
+    )
 
 
 def create_app():

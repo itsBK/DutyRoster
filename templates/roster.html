@@ -17,6 +17,11 @@
             <button onclick="nextMonth()" class="btn">Next &gt;</button>
         </div>
         <div class="header-right">
+            <select onchange="change_language(this.value)">
+                {% for language in languages %}
+                    <option value="{{ language }}" {% if session.language == language %} selected {% endif %}>{{ language }}</option>
+                {% endfor %}
+            </select>
             <button onclick="calculateSchedule()" class="btn btn-primary">Calculate Schedule</button>
             <a href="{{ url_for('workers') }}" class="btn btn-secondary">Workers</a>
             <a href="{{ url_for('settings') }}" class="btn btn-secondary">Settings</a>
@@ -246,6 +251,11 @@
 
         function closeVacationModal() {
             document.getElementById('vacationModal').style.display = 'none';
+        }
+
+        function change_language(language)
+        {
+            window.location.href = "/set-language/" + language
         }
 
         // Close modals when clicking outside

@@ -1,11 +1,10 @@
 #!/usr/bin/python3
 """Duty Roster Planning Application."""
 import json
-import argparse
 import os
 from datetime import date
 from functools import wraps
-from dotenv import load_dotenv
+from typing import List
 
 from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -23,26 +22,11 @@ def load_config(config_file: str) -> dict:
     except FileNotFoundError:
         return {}
 
-def parse_args(config: dict):
-    """Parse command line arguments with config overrides."""
-    parser = argparse.ArgumentParser(description='Duty Roster Planning Server')
-    parser.add_argument('--port', type=int, default=config.get('server', {}).get('port', 5000),
-                        help='HTTP port to listen on')
-    parser.add_argument('--host', type=str, default=config.get('server', {}).get('host', '0.0.0.0'),
-                        help='HTTP host to listen on')
-    parser.add_argument('--ssl-cert', type=str, default=config.get('server', {}).get('ssl_cert'),
-                        help='SSL certificate file path')
-    parser.add_argument('--ssl-key', type=str, default=config.get('server', {}).get('ssl_key'),
-                        help='SSL private key file path')
-    parser.add_argument('--db', type=str, default=config.get('database', {}).get('path', 'roster.db'),
-                        help='SQLite database file path')
-    return parser.parse_args()
-
 
 # Initialize app
 config = load_config('config.json')
-load_dotenv()
-#args = parse_args(config)
+SUPPORTED_LANGUAGES: List[str] = config["supported_languages"]
+DEFAULT_LANGUAGE = config["default_language"]
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ["FLASK_SECRET_KEY"]
@@ -140,6 +124,7 @@ def login():
             session['user_id'] = user['id']
             session['username'] = user['username']
             session['is_admin'] = user['is_admin']
+            session['language'] = (request.accept_languages.best_match(SUPPORTED_LANGUAGES) or DEFAULT_LANGUAGE)
             session['token'] = generate_session_token()
             session.permanent = True
             return redirect(url_for('roster'))
@@ -180,6 +165,7 @@ def roster():
                            validation=validation,
                            days_in_month=days_in_month,
                            shifts=shifts,
+                           languages=SUPPORTED_LANGUAGES,
                            today=date.today())
 
 
@@ -351,37 +337,32 @@ def settings():
                            staffing=staffing,
                            working_hours=working_hours)
 
-#TODO: temp; remove eventually
-@app.route("/debug/session")
-def debug_session():
+#TODO: complete language change in all templates
+@app.route('/set-language/<language>')
+@login_required
+def set_language(language: str):
+    if language in SUPPORTED_LANGUAGES:
+        session["language"] = language
+    return redirect(url_for('roster'))
+
+@app.route("/testing")
+@login_required
+def testing():
     return {
-        "scheme": request.scheme,
-        "is_secure": request.is_secure,
         "host": request.host,
-        "cookie_secure": app.config["SESSION_COOKIE_SECURE"],
-        "cookie": session.get("token")
+        "host_url": request.host_url,
+        "endpoint": request.endpoint,
+        "url_root": request.url_root,
+        "remote_user": request.remote_user,
+        "remote_addr": request.remote_addr,
+        "accept_languages": request.headers.get("Accept-Language"),
+        "preferred_language": request.accept_languages.best_match(SUPPORTED_LANGUAGES)
     }
 
-#TODO: temp; remove eventually
-@app.before_request
-def debug_auth():
-    app.logger.warning(
-        "PATH=%s SECURE=%s USER_ID=%s TOKEN_EXISTS=%s",
-        request.path,
-        request.is_secure,
-        session.get("user_id"),
-        bool(session.get("token"))
-    )
-
-
 def create_app():
-    ssl_context = None
-    #if args.ssl_cert and args.ssl_key:
-    #    ssl_context = (args.ssl_cert, args.ssl_key)
-
     app.run(
-        host="127.0.0.1",
-        port=8000,
-        ssl_context=ssl_context,
+        host=config["server"]["host"],
+        port=config["server"]["port"],
+        load_dotenv=True,
         debug=False
     )

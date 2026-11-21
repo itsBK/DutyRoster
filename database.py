@@ -1,7 +1,7 @@
 """Database models and operations using SQLite."""
 import sqlite3
-import os
-from datetime import date, datetime
+from datetime import date
+from calendar import monthrange
 from typing import List, Dict, Optional, Any
 
 
@@ -216,8 +216,8 @@ class Database:
     def get_schedule(self, year: int, month: int) -> Dict[int, Dict[str, Any]]:
         """Get schedule for a month, organized by worker_id -> {date: schedule_entry}."""
         start_date = date(year, month, 1)
-        days_in_month = (start_date.replace(month=month % 12 + 1, day=1) - start_date).days - 1
-        end_date = start_date.replace(day=days_in_month)
+        _, days_in_month = monthrange(year, month)
+        end_date = date(year, month, days_in_month)
 
         cursor = self.conn.cursor()
         cursor.execute('''

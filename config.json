@@ -1,13 +1,13 @@
 {
   "server": {
-    "port": 5000,
-    "host": "0.0.0.0",
-    "ssl_cert": null,
-    "ssl_key": null
+    "port": 8000,
+    "host": "127.0.0.1"
   },
   "database": {
     "path": "roster.db"
   },
+  "supported_languages": ["en", "de"],
+  "default_language": "en",
   "default_shifts": [
     {"name": "Morning", "start": "06:00", "end": "14:00"},
     {"name": "Afternoon", "start": "14:00", "end": "22:00"},

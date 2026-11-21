@@ -18,8 +18,3 @@ def verify_password(password: str, hashed: str) -> bool:
 def generate_session_token() -> str:
     """Generate a secure session token."""
     return secrets.token_urlsafe(32)
-
-
-def generate_csrf_token() -> str:
-    """Generate a CSRF token."""
-    return secrets.token_hex(32)

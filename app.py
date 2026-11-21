@@ -5,6 +5,7 @@ import os
 from datetime import date
 from functools import wraps
 from typing import List
+from dotenv import load_dotenv
 
 from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -27,6 +28,7 @@ def load_config(config_file: str) -> dict:
 config = load_config('config.json')
 SUPPORTED_LANGUAGES: List[str] = config["supported_languages"]
 DEFAULT_LANGUAGE = config["default_language"]
+load_dotenv()   # load .env file
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ["FLASK_SECRET_KEY"]
@@ -363,6 +365,5 @@ def create_app():
     app.run(
         host=config["server"]["host"],
         port=config["server"]["port"],
-        load_dotenv=True,
         debug=False
     )

@@ -1,9 +1,35 @@
 """Database models and operations using SQLite."""
+from enum import IntEnum
 import sqlite3
 from datetime import date
 from calendar import monthrange
 from typing import List, Dict, Optional, Any
 
+
+class UserType(IntEnum):
+    NORMAL = 0
+    MODERATOR = 1
+    ADMIN = 2
+
+class ShiftType(IntEnum):
+    UNDEFINED = 0
+    EARLY = 1
+    MIDDLE = 2
+    LATE = 3
+    SPECIAL = 4
+
+class ShiftDayType(IntEnum):
+    UNDEFINED = 0
+    WEEKDAY = 1
+    WEEKEND = 2
+    BOTH = 3
+
+class DayType(IntEnum):
+    OFF = 0
+    WORKING = 1
+    SICK = 2
+    VACATION = 3
+    SPECIAL_VACATION = 4
 
 class Database:
     def __init__(self, path: str):
@@ -23,8 +49,7 @@ class Database:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username TEXT UNIQUE NOT NULL,
                 passwordHash TEXT NOT NULL,
-                isAdmin INTEGER DEFAULT 0,              -- boolean
-                isModerator INTEGER DEFUALT 0,          -- boolean
+                type INTEGER DEFAULT 0,           -- 0:normal, 1:moderator, 2:admin
                 initPasswordChanged INTEGER DEFAULT 0,  -- boolean
                 createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
@@ -36,7 +61,7 @@ class Database:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 employeeNumber INTEGER DEFAULT 0,
                 name TEXT NOT NULL,
-                workerCategoryId INTEGER,
+                workerCategoryId INTEGER NOT NULL,
                 createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
                 FOREIGN KEY(workerCategoryId) REFERENCES workerCategories(id)
@@ -61,7 +86,7 @@ class Database:
             CREATE TABLE IF NOT EXISTS workerCategories (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
-                hours REAL NOT NULL,
+                hours INTEGER NOT NULL,
                 perWeek INTEGER DEFAULT 1           -- boolean: 1:week, 0:month
             )
         ''')
@@ -99,7 +124,7 @@ class Database:
 
                 workerId INTEGER NOT NULL,
                 date DATE NOT NULL,
-                type INTEGER DEFAULT 0,             -- 0:off, 1:working, 2:sick, 3:vacation, 4:special_vacation
+                type INTEGER DEFAULT 0,             -- 0:off, 1:working, 2:sick, 3:vacation, 4:specialVacation
                 shiftId INTEGER DEFAULT NULL,
 
                 userOverride INTEGER DEFAULT 0,     -- boolean
@@ -133,55 +158,69 @@ class Database:
         self.conn.commit()
 
     # User operations
-    def create_user(self, username: str, password_hash: str, is_admin: bool = False) -> int:
+    def createUser(self, username: str, password_hash: str, userType: UserType = UserType.NORMAL) -> Optional[int]:
         cursor = self.conn.cursor()
-        cursor.execute(
-            "INSERT INTO users (username, password_hash, is_admin) VALUES (?, ?, ?)",
-            (username, password_hash, 1 if is_admin else 0)
-        )
+        row = cursor.execute(
+            "INSERT OR IGNORE INTO users (username, passwordHash, type) VALUES (?, ?, ?) RETURNING id",
+            (username, password_hash, userType)
+        ).fetchone()
         self.conn.commit()
-        return cursor.lastrowid
 
-    def get_user(self, username: str) -> Optional[Dict]:
+        return row['id'] if row else None
+
+    def changeUserPassword(self, userId: int, newPasswordHash: str) -> bool:
+        ''':returns: True on success'''
+        cursor = self.conn.cursor()
+        result = cursor.execute(
+            "UPDATE users SET passwordHash = ?, initPasswordChanged = ? WHERE id = ?",
+            (newPasswordHash, 1, userId))
+        self.conn.commit()
+
+        return True if result.rowcount > 0 else False
+
+
+    def getUser(self, username: str) -> Optional[Dict]:
         cursor = self.conn.cursor()
         cursor.execute("SELECT * FROM users WHERE username = ?", (username,))
         row = cursor.fetchone()
         return dict(row) if row else None
 
-    def get_user_by_id(self, user_id: int) -> Optional[Dict]:
+    def getUserById(self, userId: int) -> Optional[Dict]:
         cursor = self.conn.cursor()
-        cursor.execute("SELECT * FROM users WHERE id = ?", (user_id,))
+        cursor.execute("SELECT * FROM users WHERE id = ?", (userId,))
         row = cursor.fetchone()
         return dict(row) if row else None
 
+
     # Worker operations
-    def get_workers(self) -> List[Dict]:
+    def getWorkers(self) -> List[Dict]:
         cursor = self.conn.cursor()
         cursor.execute('''
-            SELECT w.*, c.name as category_name, c.hours_per_week
+            SELECT w.*, c.name as categoryName, c.hours, c.perWeek
             FROM workers w
-            LEFT JOIN categories c ON w.category_id = c.id
+            LEFT JOIN workerCategories c ON w.workerCategoryId = c.id
             ORDER BY w.name
         ''')
         return [dict(row) for row in cursor.fetchall()]
 
-    def get_worker(self, worker_id: int) -> Optional[Dict]:
+    def getWorker(self, worker_id: int) -> Optional[Dict]:
         cursor = self.conn.cursor()
         cursor.execute("SELECT * FROM workers WHERE id = ?", (worker_id,))
         row = cursor.fetchone()
         return dict(row) if row else None
 
-    def create_worker(self, name: str, shift_preference: str = None,
-                      work_days_per_month: int = 20, category_id: int = None) -> int:
+    def createWorker(self, employeeNumber: int, name: str, workerCategoryId: int) -> Optional[int]:
         cursor = self.conn.cursor()
-        cursor.execute('''
-            INSERT INTO workers (name, shift_preference, work_days_per_month, category_id)
-            VALUES (?, ?, ?, ?)
-        ''', (name, shift_preference, work_days_per_month, category_id))
+        row = cursor.execute('''
+            INSERT INTO workers (employeeNumber, name, workerCategoryId)
+            VALUES (?, ?, ?) RETURNING id
+        ''', (employeeNumber, name, workerCategoryId)).fetchone()
         self.conn.commit()
-        return cursor.lastrowid
+        return row["id"] if row else None
 
-    def update_worker(self, worker_id: int, **kwargs):
+    #TODO: check this function
+    def updateWorker(self, worker_id: int, **kwargs):
+        '''WARNING: needs checking'''
         fields = []
         values = []
         for key, value in kwargs.items():
@@ -197,43 +236,49 @@ class Database:
         self.conn.commit()
 
     # Category operations
-    def get_categories(self) -> List[Dict]:
+    def getCategories(self) -> List[Dict]:
         cursor = self.conn.cursor()
-        cursor.execute("SELECT * FROM categories WHERE is_active = 1 ORDER BY name")
+        cursor.execute("SELECT * FROM workerCategories ORDER BY name")
         return [dict(row) for row in cursor.fetchall()]
 
-    def create_category(self, name: str, hours_per_week: float = 40.0) -> int:
+    def createCategory(self, name: str, hours: int, perWeek: bool) -> Optional[int]:
+        ''':param perWeek: hours goal per week or per month'''
         cursor = self.conn.cursor()
-        cursor.execute(
-            "INSERT INTO categories (name, hours_per_week) VALUES (?, ?)",
-            (name, hours_per_week)
-        )
+        row = cursor.execute(
+            "INSERT INTO workerCategories (name, hours, perWeek) VALUES (?, ?, ?) RETURNING id",
+            (name, hours, 1 if perWeek else 0)
+        ).fetchone()
         self.conn.commit()
-        return cursor.lastrowid
+        return row["id"] if row else None
 
-    def update_category(self, category_id: int, name: str, hours_per_week: float):
+    def updateCategory(self, categoryId: int, newName: str, newHours: int, perWeek: bool) -> bool:
+        ''':return: True on success'''
         cursor = self.conn.cursor()
-        cursor.execute(
-            "UPDATE categories SET name = ?, hours_per_week = ? WHERE id = ?",
-            (name, hours_per_week, category_id)
+        result = cursor.execute(
+            "UPDATE workerCategories SET name = ?, hours = ?, perWeek = ? WHERE id = ?",
+            (newName, newHours, 1 if perWeek else 0, categoryId)
         )
         self.conn.commit()
+
+        return True if result.rowcount > 0 else False
 
     # Shift operations
-    def get_shifts(self) -> List[Dict]:
+    def getShifts(self) -> List[Dict]:
         cursor = self.conn.cursor()
-        cursor.execute("SELECT * FROM shifts WHERE is_active = 1 ORDER BY start_time")
+        cursor.execute("SELECT * FROM shifts ORDER BY startTime")
         return [dict(row) for row in cursor.fetchall()]
 
-    def create_shift(self, name: str, start_time: str, end_time: str) -> int:
+    def createShift(self, name: str, startTime: str, endTime: str, shiftType: ShiftType, dayType: ShiftDayType) -> Optional[int]:
         cursor = self.conn.cursor()
-        cursor.execute(
-            "INSERT INTO shifts (name, start_time, end_time) VALUES (?, ?, ?)",
-            (name, start_time, end_time)
-        )
+        row = cursor.execute("""
+            INSERT INTO shifts (name, startTime, endTime, shiftType, dayType)
+            VALUES (?, ?, ?, ?, ?) RETURNING id""",
+            (name, startTime, endTime, shiftType, dayType)
+        ).fetchone()
         self.conn.commit()
-        return cursor.lastrowid
+        return row["id"] if row else None
 
+    #TODO: continue here
     def update_shift(self, shift_id: int, name: str, start_time: str, end_time: str):
         cursor = self.conn.cursor()
         cursor.execute(

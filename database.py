@@ -22,9 +22,11 @@ class Database:
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username TEXT UNIQUE NOT NULL,
-                password_hash TEXT NOT NULL,
-                is_admin INTEGER DEFAULT 0,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                passwordHash TEXT NOT NULL,
+                isAdmin INTEGER DEFAULT 0,              -- boolean
+                isModerator INTEGER DEFUALT 0,          -- boolean
+                initPasswordChanged INTEGER DEFAULT 0,  -- boolean
+                createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
 
@@ -32,25 +34,35 @@ class Database:
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS workers (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                employeeNumber INTEGER DEFAULT 0,
                 name TEXT NOT NULL,
-                shift_preference TEXT,
-                work_days_per_month INTEGER DEFAULT 20,
-                category_id INTEGER,
-                on_vacation INTEGER DEFAULT 0,
-                vacation_start DATE,
-                vacation_end DATE,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (category_id) REFERENCES categories(id)
+                workerCategoryId INTEGER,
+                createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+                FOREIGN KEY(workerCategoryId) REFERENCES workerCategories(id)
             )
         ''')
 
-        # Categories table (hours-per-week groups)
+        # Linking users to workers
+        # a worker could be a user but doesn't have to and the opposite is also true
         cursor.execute('''
-            CREATE TABLE IF NOT EXISTS categories (
+            CREATE TABLE IF NOT EXISTS userWorkerLink (
+                userId INTEGER UNIQUE,
+                workerId INTEGER UNIQUE,
+
+                PRIMARY KEY(userId, workerId),
+                FOREIGN KEY(userId) REFERENCES users(id),
+                FOREIGN KEY(workerId) REFERENCES workers(id)
+            )
+        ''')
+
+        # worker categories table (hours-per-week/month worker groups)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS workerCategories (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
-                hours_per_week REAL DEFAULT 40,
-                is_active INTEGER DEFAULT 1
+                hours REAL NOT NULL,
+                perWeek INTEGER DEFAULT 1           -- boolean: 1:week, 0:month
             )
         ''')
 
@@ -59,9 +71,24 @@ class Database:
             CREATE TABLE IF NOT EXISTS shifts (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
-                start_time TEXT NOT NULL,
-                end_time TEXT NOT NULL,
-                is_active INTEGER DEFAULT 1
+                startTime TEXT NOT NULL,
+                endTime TEXT NOT NULL,
+                shiftType INTEGER NOT NULL,         -- 0:undefined, 1:early, 2:middle, 3:late, 4:special
+                dayType INTEGER NOT NULL            -- 0:undefined, 1:weekday, 2:weekend, 3:both
+            )
+        ''')
+
+        # Shifts preferences table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS workerShifts (
+                workerId INTEGER NOT NULL,
+                shiftId INTEGER NOT NULL,
+                force INTEGER DEFAULT 0,            -- boolean, true when the admin forces this shift to be assigned (when appicable)
+                preferred INTEGER DEFAULT 0,        -- boolean, true when the worker desires this shift
+
+                PRIMARY KEY(workerId, shiftId),
+                FOREIGN KEY(workerId) REFERENCES workers(id),
+                FOREIGN KEY(shiftId) REFERENCES shifts(id)
             )
         ''')
 
@@ -69,36 +96,39 @@ class Database:
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS schedule (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                worker_id INTEGER NOT NULL,
+
+                workerId INTEGER NOT NULL,
                 date DATE NOT NULL,
-                shift_id INTEGER,
-                status TEXT DEFAULT 'working',
-                user_override INTEGER DEFAULT 0,
-                UNIQUE(worker_id, date),
-                FOREIGN KEY (worker_id) REFERENCES workers(id),
-                FOREIGN KEY (shift_id) REFERENCES shifts(id)
+                type INTEGER DEFAULT 0,             -- 0:off, 1:working, 2:sick, 3:vacation, 4:special_vacation
+                shiftId INTEGER DEFAULT NULL,
+
+                userOverride INTEGER DEFAULT 0,     -- boolean
+
+                UNIQUE(workerId, date),
+                FOREIGN KEY(workerId) REFERENCES workers(id),
+                FOREIGN KEY(shiftId) REFERENCES shifts(id)
             )
         ''')
 
         # Staffing requirements table
         cursor.execute('''
-            CREATE TABLE IF NOT EXISTS staffing_requirements (
+            CREATE TABLE IF NOT EXISTS staffingRequirements (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                day_type TEXT NOT NULL,
-                hour INTEGER NOT NULL,
-                workers_needed INTEGER NOT NULL,
-                UNIQUE(day_type, hour)
+                shiftType INTEGER DEFAULT 0,        -- 0:undefined, 1:early, 2:middle, 3:late, 4:special
+                workersNeeded INTEGER NOT NULL,
+
+                UNIQUE(shiftType, workersNeeded)
             )
         ''')
 
         # Working hours configuration
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS working_hours (
-                day_type TEXT PRIMARY KEY,
-                start_time TEXT NOT NULL,
-                end_time TEXT NOT NULL
-            )
-        ''')
+        # cursor.execute('''
+        #     CREATE TABLE IF NOT EXISTS workingHours (
+        #         dayType TEXT PRIMARY KEY,
+        #         startTime TEXT NOT NULL,
+        #         endTime TEXT NOT NULL
+        #     )
+        # ''')
 
         self.conn.commit()
 

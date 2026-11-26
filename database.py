@@ -31,6 +31,7 @@ class DayType(IntEnum):
     VACATION = 3
     SPECIAL_VACATION = 4
 
+
 class Database:
     def __init__(self, path: str):
         self.path = path
@@ -259,7 +260,6 @@ class Database:
             (newName, newHours, 1 if perWeek else 0, categoryId)
         )
         self.conn.commit()
-
         return True if result.rowcount > 0 else False
 
     # Shift operations
@@ -278,95 +278,74 @@ class Database:
         self.conn.commit()
         return row["id"] if row else None
 
-    #TODO: continue here
-    def update_shift(self, shift_id: int, name: str, start_time: str, end_time: str):
+    def updateShift(self, shiftId: int, newName: str, startTime: str, endTime: str, shiftType: ShiftType, dayType: ShiftDayType) -> bool:
+        ''':return: True on success'''
         cursor = self.conn.cursor()
-        cursor.execute(
-            "UPDATE shifts SET name = ?, start_time = ?, end_time = ? WHERE id = ?",
-            (name, start_time, end_time, shift_id)
+        result = cursor.execute(
+            """UPDATE shifts
+            SET name = ?, startTime = ?, endTime = ?, shiftType = ?, dayType = ?
+            WHERE id = ?""",
+            (newName, startTime, endTime, shiftType, dayType, shiftId)
         )
         self.conn.commit()
+        return True if result.rowcount > 0 else False
 
     # Schedule operations
-    def get_schedule(self, year: int, month: int) -> Dict[int, Dict[str, Any]]:
+    def getSchedule(self, year: int, month: int) -> Dict[int, Dict[str, Any]]:
         """Get schedule for a month, organized by worker_id -> {date: schedule_entry}."""
-        start_date = date(year, month, 1)
+        startDate = date(year, month, 1)
         _, days_in_month = monthrange(year, month)
-        end_date = date(year, month, days_in_month)
+        endDate = date(year, month, days_in_month)
 
         cursor = self.conn.cursor()
         cursor.execute('''
-            SELECT s.*, w.name as worker_name, sh.name as shift_name,
-                   sh.start_time as shift_start, sh.end_time as shift_end
-            FROM schedule s
-            JOIN workers w ON s.worker_id = w.id
-            LEFT JOIN shifts sh ON s.shift_id = sh.id
-            WHERE s.date >= ? AND s.date <= ?
-            ORDER BY s.date, w.name
-        ''', (start_date.isoformat(), end_date.isoformat()))
+            SELECT scd.*,
+                w.name as workerName, w.employeeNumber as employeeNumber, w.workerCategoryId,
+                sh.name as shiftName, sh.startTime as shiftStart, sh.endTime as shiftEnd,
+                wCtg.name as categoryName, wCtg.hours as categoryHoues, wCtg.perWeek as isHoursPerWeek
+            FROM schedule scd
+            JOIN workers w ON scd.workerId = w.id
+            LEFT JOIN shifts sh ON scd.shiftId = sh.id
+            LEFT JOIN workerCategories wCtg ON w.workerCategoryId = wCtg.id
+            WHERE scd.date >= ? AND scd.date <= ?
+            ORDER BY scd.date, workerGroupId, w.name
+        ''', (startDate.isoformat(), endDate.isoformat()))
 
         schedule = {}
-        for row in cursor.fetchall():
-            worker_id = row['worker_id']
-            if worker_id not in schedule:
-                schedule[worker_id] = {}
-            schedule[worker_id][row['date']] = dict(row)
+        for entry in cursor.fetchall():
+            workerId = entry['workerId']
+            if workerId not in schedule:
+                schedule[workerId] = {}
+            schedule[workerId][entry['date']] = dict(entry)
 
         return schedule
 
-    def set_schedule_entry(self, worker_id: int, date_str: str, shift_id: int,
-                           status: str = 'working', user_override: bool = False):
+    def setScheduleEntry(self, workerId: int, dateStr: str, type: DayType,
+                         shiftId: int, userOverride: bool) -> bool:
+        ''':return: True on success'''
         cursor = self.conn.cursor()
-        cursor.execute('''
-            INSERT OR REPLACE INTO schedule (worker_id, date, shift_id, status, user_override)
-            VALUES (?, ?, ?, ?, ?)
-        ''', (worker_id, date_str, shift_id, status, 1 if user_override else 0))
-        self.conn.commit()
-
-    def clear_schedule(self, year: int, month: int):
-        start_date = date(year, month, 1)
-        days_in_month = (start_date.replace(month=month % 12 + 1, day=1) - start_date).days - 1
-        end_date = start_date.replace(day=days_in_month)
-        cursor = self.conn.cursor()
-        cursor.execute(
-            "DELETE FROM schedule WHERE date >= ? AND date <= ?",
-            (start_date.isoformat(), end_date.isoformat())
+        result = cursor.execute('''
+            INSERT OR REPLACE INTO schedule (workerId, date, type, shiftId, userOverride)
+            VALUES (?, ?, ?, ?, ?)''',
+            (workerId, dateStr, type, shiftId, 1 if userOverride else 0)
         )
         self.conn.commit()
+        return True if result.rowcount > 0 else False
 
     # Staffing requirements
-    def get_staffing_requirements(self) -> List[Dict]:
+    def getStaffingRequirements(self) -> List[Dict]:
         cursor = self.conn.cursor()
-        cursor.execute("SELECT * FROM staffing_requirements ORDER BY day_type, hour")
+        result = cursor.execute("SELECT * FROM staffingRequirements ORDER BY shiftType, workersNeeded")
         return [dict(row) for row in cursor.fetchall()]
 
-    def set_staffing_requirement(self, day_type: str, hour: int, workers_needed: int):
+    def setStaffingRequirement(self, shiftType: ShiftType, workersNeeded: int) -> bool:
         cursor = self.conn.cursor()
-        cursor.execute('''
-            INSERT OR REPLACE INTO staffing_requirements (day_type, hour, workers_needed)
-            VALUES (?, ?, ?)
-        ''', (day_type, hour, workers_needed))
+        result = cursor.execute('''
+            INSERT OR REPLACE INTO staffingRequirements (shiftType, workersNeeded)
+            VALUES (?, ?)
+        ''', (shiftType, workersNeeded))
         self.conn.commit()
-
-    # Working hours
-    def set_working_hours(self, day_type: str, start_time: str, end_time: str):
-        cursor = self.conn.cursor()
-        cursor.execute('''
-            INSERT OR REPLACE INTO working_hours (day_type, start_time, end_time)
-            VALUES (?, ?, ?)
-        ''', (day_type, start_time, end_time))
-        self.conn.commit()
-
-    def get_working_hours(self) -> Dict[str, Dict]:
-        cursor = self.conn.cursor()
-        cursor.execute("SELECT * FROM working_hours")
-        result = {}
-        for row in cursor.fetchall():
-            result[row['day_type']] = {
-                'start': row['start_time'],
-                'end': row['end_time']
-            }
-        return result
+        return True if result.rowcount > 0 else False
 
     def close(self):
         self.conn.close()
